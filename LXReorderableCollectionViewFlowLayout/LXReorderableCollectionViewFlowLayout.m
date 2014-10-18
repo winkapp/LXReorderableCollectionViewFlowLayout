@@ -24,6 +24,8 @@ typedef NS_ENUM(NSInteger, LXScrollingDirection) {
     LXScrollingDirectionRight
 };
 
+static NSTimeInterval kLXCooldownTime = 0.1f;
+
 static NSString * const kLXScrollingDirectionKey = @"LXScrollingDirection";
 static NSString * const kLXCollectionViewKeyPath = @"collectionView";
 
@@ -53,11 +55,11 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
     // if ([self respondsToSelector:@selector(snapshotViewAfterScreenUpdates:)]) {
     //     return [self snapshotViewAfterScreenUpdates:YES];
     // } else {
-        UIGraphicsBeginImageContextWithOptions(self.bounds.size, self.isOpaque, 0.0f);
-        [self.layer renderInContext:UIGraphicsGetCurrentContext()];
-        UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-        return [[UIImageView alloc] initWithImage:image];
+    UIGraphicsBeginImageContextWithOptions(self.bounds.size, self.isOpaque, 0.0f);
+    [self.layer renderInContext:UIGraphicsGetCurrentContext()];
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return [[UIImageView alloc] initWithImage:image];
     // }
 }
 
@@ -70,6 +72,7 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
 @property (assign, nonatomic) CGPoint currentViewCenter;
 @property (assign, nonatomic) CGPoint panTranslationInCollectionView;
 @property (strong, nonatomic) CADisplayLink *displayLink;
+@property (strong, nonatomic) NSTimer *cooldownTimer;
 
 @property (assign, nonatomic, readonly) id<LXReorderableCollectionViewDataSource> dataSource;
 @property (assign, nonatomic, readonly) id<LXReorderableCollectionViewDelegateFlowLayout> delegate;
@@ -112,7 +115,7 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
                                                                     action:@selector(handlePanGesture:)];
     _panGestureRecognizer.delegate = self;
     [self.collectionView addGestureRecognizer:_panGestureRecognizer];
-
+    
     // Useful in multiple scenarios: one common scenario being when the Notification Center drawer is pulled down
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleApplicationWillResignActive:) name: UIApplicationWillResignActiveNotification object:nil];
 }
@@ -137,6 +140,7 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
 
 - (void)dealloc {
     [self invalidatesScrollTimer];
+    [self invalidateCooldownTimer];
     [self removeObserver:self forKeyPath:kLXCollectionViewKeyPath];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationWillResignActiveNotification object:nil];
 }
@@ -173,7 +177,7 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
     if ([self.dataSource respondsToSelector:@selector(collectionView:itemAtIndexPath:willMoveToIndexPath:)]) {
         [self.dataSource collectionView:self.collectionView itemAtIndexPath:previousIndexPath willMoveToIndexPath:newIndexPath];
     }
-
+    
     __weak typeof(self) weakSelf = self;
     [self.collectionView performBatchUpdates:^{
         __strong typeof(self) strongSelf = weakSelf;
@@ -200,17 +204,17 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
 - (void)setupScrollTimerInDirection:(LXScrollingDirection)direction {
     if (!self.displayLink.paused) {
         LXScrollingDirection oldDirection = [self.displayLink.LX_userInfo[kLXScrollingDirectionKey] integerValue];
-
+        
         if (direction == oldDirection) {
             return;
         }
     }
     
     [self invalidatesScrollTimer];
-
+    
     self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(handleScroll:)];
     self.displayLink.LX_userInfo = @{ kLXScrollingDirectionKey : @(direction) };
-
+    
     [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 
@@ -292,7 +296,7 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
             }
             
             if ([self.dataSource respondsToSelector:@selector(collectionView:canMoveItemAtIndexPath:)] &&
-               ![self.dataSource collectionView:self.collectionView canMoveItemAtIndexPath:currentIndexPath]) {
+                ![self.dataSource collectionView:self.collectionView canMoveItemAtIndexPath:currentIndexPath]) {
                 return;
             }
             
@@ -357,7 +361,7 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
                     [self.delegate collectionView:self.collectionView layout:self willEndDraggingItemAtIndexPath:currentIndexPath];
                 }
                 
-//                self.selectedItemIndexPath = nil;
+                //                self.selectedItemIndexPath = nil;
                 self.currentViewCenter = CGPointZero;
                 
                 UICollectionViewLayoutAttributes *layoutAttributes = [self layoutAttributesForItemAtIndexPath:currentIndexPath];
@@ -399,6 +403,44 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
     }
 }
 
+- (void)movementCooled:(NSTimer *)timer
+{
+    [self invalidateLayoutIfNecessary];
+    
+    CGPoint viewCenter = self.currentView.center;
+    
+    switch (self.scrollDirection) {
+        case UICollectionViewScrollDirectionVertical: {
+            if (viewCenter.y < (CGRectGetMinY(self.collectionView.bounds) + self.scrollingTriggerEdgeInsets.top)) {
+                [self setupScrollTimerInDirection:LXScrollingDirectionUp];
+            } else {
+                if (viewCenter.y > (CGRectGetMaxY(self.collectionView.bounds) - self.scrollingTriggerEdgeInsets.bottom)) {
+                    [self setupScrollTimerInDirection:LXScrollingDirectionDown];
+                } else {
+                    [self invalidatesScrollTimer];
+                }
+            }
+        } break;
+        case UICollectionViewScrollDirectionHorizontal: {
+            if (viewCenter.x < (CGRectGetMinX(self.collectionView.bounds) + self.scrollingTriggerEdgeInsets.left)) {
+                [self setupScrollTimerInDirection:LXScrollingDirectionLeft];
+            } else {
+                if (viewCenter.x > (CGRectGetMaxX(self.collectionView.bounds) - self.scrollingTriggerEdgeInsets.right)) {
+                    [self setupScrollTimerInDirection:LXScrollingDirectionRight];
+                } else {
+                    [self invalidatesScrollTimer];
+                }
+            }
+        } break;
+    }
+}
+
+- (void)invalidateCooldownTimer
+{
+    [self.cooldownTimer invalidate];
+    self.cooldownTimer = nil;
+}
+
 - (void)handlePanGesture:(UIPanGestureRecognizer *)gestureRecognizer {
     switch (gestureRecognizer.state) {
         case UIGestureRecognizerStateBegan:
@@ -406,36 +448,17 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
             self.panTranslationInCollectionView = [gestureRecognizer translationInView:self.collectionView];
             CGPoint viewCenter = self.currentView.center = LXS_CGPointAdd(self.currentViewCenter, self.panTranslationInCollectionView);
             
-            [self invalidateLayoutIfNecessary];
-            
-            switch (self.scrollDirection) {
-                case UICollectionViewScrollDirectionVertical: {
-                    if (viewCenter.y < (CGRectGetMinY(self.collectionView.bounds) + self.scrollingTriggerEdgeInsets.top)) {
-                        [self setupScrollTimerInDirection:LXScrollingDirectionUp];
-                    } else {
-                        if (viewCenter.y > (CGRectGetMaxY(self.collectionView.bounds) - self.scrollingTriggerEdgeInsets.bottom)) {
-                            [self setupScrollTimerInDirection:LXScrollingDirectionDown];
-                        } else {
-                            [self invalidatesScrollTimer];
-                        }
-                    }
-                } break;
-                case UICollectionViewScrollDirectionHorizontal: {
-                    if (viewCenter.x < (CGRectGetMinX(self.collectionView.bounds) + self.scrollingTriggerEdgeInsets.left)) {
-                        [self setupScrollTimerInDirection:LXScrollingDirectionLeft];
-                    } else {
-                        if (viewCenter.x > (CGRectGetMaxX(self.collectionView.bounds) - self.scrollingTriggerEdgeInsets.right)) {
-                            [self setupScrollTimerInDirection:LXScrollingDirectionRight];
-                        } else {
-                            [self invalidatesScrollTimer];
-                        }
-                    }
-                } break;
+            if (self.cooldownTimer) {
+                [self.cooldownTimer invalidate];
             }
+            
+            self.cooldownTimer = [NSTimer scheduledTimerWithTimeInterval:kLXCooldownTime target:self selector:@selector(movementCooled:) userInfo:nil repeats:NO];
+            
         } break;
         case UIGestureRecognizerStateCancelled:
         case UIGestureRecognizerStateEnded: {
             [self invalidatesScrollTimer];
+            [self invalidateCooldownTimer];
         } break;
         default: {
             // Do nothing...
