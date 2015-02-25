@@ -50,15 +50,15 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
 @implementation UICollectionViewCell (LXReorderableCollectionViewFlowLayout)
 
 - (UIView *)LX_snapshotView {
-    if ([self respondsToSelector:@selector(snapshotViewAfterScreenUpdates:)]) {
-        return [self snapshotViewAfterScreenUpdates:YES];
-    } else {
-        UIGraphicsBeginImageContextWithOptions(self.bounds.size, self.isOpaque, 0.0f);
-        [self.layer renderInContext:UIGraphicsGetCurrentContext()];
-        UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-        return [[UIImageView alloc] initWithImage:image];
-    }
+    //    if ([self respondsToSelector:@selector(snapshotViewAfterScreenUpdates:)]) {
+    //        return [self snapshotViewAfterScreenUpdates:YES];
+    //    } else {
+    UIGraphicsBeginImageContextWithOptions(self.bounds.size, self.isOpaque, 0.0f);
+    [self.layer renderInContext:UIGraphicsGetCurrentContext()];
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return [[UIImageView alloc] initWithImage:image];
+    //    }
 }
 
 @end
