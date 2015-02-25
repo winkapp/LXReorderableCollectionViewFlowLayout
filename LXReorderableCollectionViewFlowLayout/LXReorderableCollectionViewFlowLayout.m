@@ -24,8 +24,6 @@ typedef NS_ENUM(NSInteger, LXScrollingDirection) {
     LXScrollingDirectionRight
 };
 
-static NSTimeInterval kLXCooldownTime = 0.1f;
-
 static NSString * const kLXScrollingDirectionKey = @"LXScrollingDirection";
 static NSString * const kLXCollectionViewKeyPath = @"collectionView";
 
@@ -52,15 +50,15 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
 @implementation UICollectionViewCell (LXReorderableCollectionViewFlowLayout)
 
 - (UIView *)LX_snapshotView {
-    // if ([self respondsToSelector:@selector(snapshotViewAfterScreenUpdates:)]) {
-    //     return [self snapshotViewAfterScreenUpdates:YES];
-    // } else {
-    UIGraphicsBeginImageContextWithOptions(self.bounds.size, self.isOpaque, 0.0f);
-    [self.layer renderInContext:UIGraphicsGetCurrentContext()];
-    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    return [[UIImageView alloc] initWithImage:image];
-    // }
+    if ([self respondsToSelector:@selector(snapshotViewAfterScreenUpdates:)]) {
+        return [self snapshotViewAfterScreenUpdates:YES];
+    } else {
+        UIGraphicsBeginImageContextWithOptions(self.bounds.size, self.isOpaque, 0.0f);
+        [self.layer renderInContext:UIGraphicsGetCurrentContext()];
+        UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        return [[UIImageView alloc] initWithImage:image];
+    }
 }
 
 @end
@@ -87,6 +85,7 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
     _draggingAlpha = 0.8;
     _draggingScale = 1.1;
     _longPressDuration = 0.5;
+    _reorderCooldownTime = 0.08;
 }
 
 - (void)setLongPressDuration:(NSTimeInterval)longPressDuration
@@ -452,7 +451,7 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
                 [self.cooldownTimer invalidate];
             }
             
-            self.cooldownTimer = [NSTimer scheduledTimerWithTimeInterval:kLXCooldownTime target:self selector:@selector(movementCooled:) userInfo:nil repeats:NO];
+            self.cooldownTimer = [NSTimer scheduledTimerWithTimeInterval:self.reorderCooldownTime target:self selector:@selector(movementCooled:) userInfo:nil repeats:NO];
             
         } break;
         case UIGestureRecognizerStateCancelled:
