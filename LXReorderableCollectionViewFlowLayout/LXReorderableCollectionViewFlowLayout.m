@@ -85,7 +85,7 @@ static NSString * const kLXCollectionViewKeyPath = @"collectionView";
     _draggingAlpha = 0.8;
     _draggingScale = 1.1;
     _longPressDuration = 0.5;
-    _reorderCooldownTime = 0.08;
+    _reorderCooldownTime = 0.1;
 }
 
 - (void)setLongPressDuration:(NSTimeInterval)longPressDuration
