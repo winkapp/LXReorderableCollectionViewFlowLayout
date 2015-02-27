@@ -16,6 +16,7 @@
 @property (nonatomic) CGFloat draggingScale;
 @property (nonatomic) CGFloat draggingAlpha;
 @property (nonatomic) NSTimeInterval longPressDuration;
+@property (nonatomic) NSTimeInterval reorderCooldownTime;
 
 - (void)setUpGestureRecognizersOnCollectionView __attribute__((deprecated("Calls to setUpGestureRecognizersOnCollectionView method are not longer needed as setup are done automatically through KVO.")));
 
